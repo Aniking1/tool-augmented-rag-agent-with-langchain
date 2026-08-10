@@ -1,4 +1,5 @@
 import sys
+#import uuid
 
 from agent import run_agent
 from conversation import (
@@ -6,6 +7,7 @@ from conversation import (
     print_conversation_history,
 )
 
+#THREAD_ID = f"travel-{uuid.uuid4()}"
 THREAD_ID = "travel-assistant"
 
 
@@ -23,16 +25,13 @@ def main():
         thread_id=THREAD_ID,
     )
 
-    # Save into Chroma conversation history
     save_conversation(
         user_prompt,
         final_response,
     )
 
-    # Print conversation history first
     print_conversation_history()
 
-    # Print latest answer
     print("\nFinal Response")
     print("=" * 60)
     print(final_response)

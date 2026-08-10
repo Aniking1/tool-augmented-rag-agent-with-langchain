@@ -1,9 +1,11 @@
 import os
 
 from dotenv import load_dotenv
-from memory import memory
+
 from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
+
+from memory import memory
 
 from tools import (
     get_flight_booking,
@@ -11,11 +13,29 @@ from tools import (
     convert_currency,
 )
 
-from rag_tool import query_internal_knowledge
+from rag_tool import (
+    query_internal_knowledge,
+    initialize_rag,
+)
+
+
+# -------------------------------------------------------
+# Load environment variables
+# -------------------------------------------------------
 
 load_dotenv()
 
+
+# -------------------------------------------------------
+# Configuration
+# -------------------------------------------------------
+
 MODEL_NAME = "nvidia/nemotron-3-nano-30b-a3b:free"
+
+
+# -------------------------------------------------------
+# OpenRouter LLM
+# -------------------------------------------------------
 
 llm = ChatOpenAI(
     model=MODEL_NAME,
@@ -24,6 +44,11 @@ llm = ChatOpenAI(
     temperature=0,
 )
 
+
+# -------------------------------------------------------
+# Register tools
+# -------------------------------------------------------
+
 tools = [
     get_flight_booking,
     get_hotel_booking,
@@ -31,32 +56,96 @@ tools = [
     query_internal_knowledge,
 ]
 
-system_prompt = """
-You are an AI travel assistant.
 
-You MUST use the available tools whenever the user asks about:
+# -------------------------------------------------------
+# System Prompt
+# -------------------------------------------------------
 
-- flights
-- hotels
-- travel cost
-- logistics cost
+SYSTEM_PROMPT = """
+You are an intelligent AI Travel Assistant.
 
-Never answer from your own knowledge if a tool exists.
+You have access to four tools:
 
-Always call the appropriate tool first before responding.
+1. Flight Booking
+2. Hotel Booking
+3. Currency Conversion
+4. Internal Knowledge Search (RAG)
+
+Guidelines:
+
+• Use the Flight tool whenever flight information or
+  airfare is required.
+
+• Use the Hotel tool whenever accommodation pricing
+  is required.
+
+• If the user asks for the total logistics cost,
+  calculate:
+
+    Flight Cost + Hotel Cost
+
+  using the available tools.
+
+• Only use the Currency Conversion tool if the user
+  explicitly requests another currency.
+
+• Use the Internal Knowledge tool whenever company
+  policies, travel policies, conference guidelines,
+  reimbursements, or previous knowledge are requested.
+
+• Answer clearly and concisely.
+
+• If enough information is available, do not ask
+  unnecessary follow-up questions.
+
+• Prefer tool usage over guessing.
+
+• When internal policy information is requested,
+  retrieve it using the Internal Knowledge Search tool
+  rather than relying on assumptions.
 """
+
+
+# -------------------------------------------------------
+# Build LangGraph Agent
+# -------------------------------------------------------
 
 agent = create_agent(
     model=llm,
     tools=tools,
-    system_prompt=system_prompt,
+    system_prompt=SYSTEM_PROMPT,
     checkpointer=memory,
+    debug=False,
 )
 
-def run_agent(prompt: str, thread_id: str = "travel-assistant") -> str:
+
+# -------------------------------------------------------
+# Run Agent
+# -------------------------------------------------------
+
+def run_agent(
+    prompt: str,
+    thread_id: str = "travel-session",
+) -> str:
     """
-    Run the travel agent with persistent conversation memory.
+    Execute the travel agent.
+
+    The RAG knowledge base is initialized before the
+    agent is invoked.
     """
+
+    # ---------------------------------------------------
+    # IMPORTANT:
+    # Ensure RAG exists BEFORE calling the agent.
+    #
+    # initialize_rag() does NOT rebuild an existing DB.
+    # ---------------------------------------------------
+
+    initialize_rag()
+
+    # ---------------------------------------------------
+    # Invoke agent
+    # ---------------------------------------------------
 
     result = agent.invoke(
         {
@@ -69,9 +158,42 @@ def run_agent(prompt: str, thread_id: str = "travel-assistant") -> str:
         },
         config={
             "configurable": {
-                "thread_id": thread_id
+                "thread_id": thread_id,
             }
-        }
+        },
     )
 
     return result["messages"][-1].content
+
+
+# -------------------------------------------------------
+# Optional streaming
+# -------------------------------------------------------
+
+def stream_agent(
+    prompt: str,
+    thread_id: str = "travel-session",
+):
+    """
+    Stream intermediate LangGraph events.
+    """
+
+    initialize_rag()
+
+    for event in agent.stream(
+        {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ]
+        },
+        config={
+            "configurable": {
+                "thread_id": thread_id,
+            }
+        },
+        stream_mode="updates",
+    ):
+        print(event)

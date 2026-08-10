@@ -200,11 +200,9 @@ HF_API_KEY=your_huggingface_token
 
 Place your documents inside the `data/` folder.
 
-Supported formats:
+Supported format:
 
-* PDF
 * TXT
-* DOCX
 
 Build the vector database
 
